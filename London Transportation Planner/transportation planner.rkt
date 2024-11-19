@@ -1,0 +1,253 @@
+#lang racket/gui
+(require racket/gui)
+(require json)
+(require net/url)
+(require net/http-client)
+
+
+
+;;TITLE FRAME
+;;Create a window for the software
+(define title-frame (new frame%
+                         [label "Transportation Planner"]
+                         [width 1000] [height 800]))
+
+;;Define a vertical panel to center the title
+(define title-panel (new vertical-panel%
+                         [parent title-frame]
+                         [alignment '(center center)]
+                         [stretchable-width #f]
+                         [stretchable-height #f]
+                         [border 300]))
+
+;;Create a title for the title screen
+(define title (new message%
+                   [label "London Transport Plannerr"]
+                   [parent title-panel]
+                   [font (make-object font% 25 'default)]
+                   ))
+
+
+;;Create button to enter software
+(define open-button (new button%
+                      [parent title-panel]
+                      [label "Enter"]
+                      [vert-margin 25]
+                      [min-width 25]
+                      [min-height 30]
+                      [font (make-object font% 15 'default)]
+                      [callback (λ (open-btn t-win-change)
+                                  (send title-frame show #f)
+                                  (send main-frame show #t))]
+                    ))
+;;TITLE FRAME END
+
+;;Show the title window
+(send title-frame show #t)
+
+
+;;MAIN FRAME
+;;Creating a main-frame window for the software
+(define main-frame (new frame%
+                        [label "Main Frame"]
+                        [width 1000]
+                        [height 800]
+                        ))
+
+;;Create a vertical panel for the main-frame
+(define main-frame-panel (new vertical-panel%
+                         [parent main-frame]
+                         [alignment '(center center)]
+                         [stretchable-width #f]
+                         [stretchable-height #f]
+                         [border 300]
+                         ))
+
+;;MAINFRAME TEXT FIELDS
+;;From text field
+(define from-field (new text-field%
+                        [label "Departure Stop "]
+                        [parent main-frame-panel]
+                        [vert-margin 10]
+                        ))
+;;To text field
+(define to-field (new text-field%
+                      [label "Destination Stop: "]
+                      [parent main-frame-panel]
+                      [vert-margin 10]
+                      ))
+
+;;Date text field
+(define date-picker-field (new text-field%
+                         [parent main-frame-panel]
+                         [label "Select Date (YYYYMMDD):"]
+                         [vert-margin 10]
+                         ))
+
+;;Time text field
+(define time-selector (new text-field%
+                           [parent main-frame-panel]
+                           [label "Enter Departing Time (HHMM): "]
+                           [vert-margin 10]
+                           ))
+;;MAIN FRAME TEXT FIELDS END
+
+;;Create a result button to send HTTP request and pull requests
+(define search-btn (new button%
+                    [parent main-frame-panel]
+                    [label "Search Journey"]
+                    [vert-margin 25]
+                    [min-width 25]
+                    [min-height 30]
+                    [callback (λ (btn event)
+                                (define from (send from-field get-value))
+                                (define to (send to-field get-value))
+                                (define date (send date-picker-field get-value))
+                                (define time (send time-selector get-value))
+                                (define result (get-journey from to date time))
+                                (displayln result)
+
+                                (define modes (pull-modes result))
+                                (define departure (pull-departure-stations result))
+                                (define departure-t (pull-departure-time result))
+                                (define arrival (pull-arrival-stations result))
+                                (define arrival-t (pull-arrival-time result))
+
+                                (clear-results)
+
+                                (create-display departure departure-t arrival arrival-t modes)
+
+                                (send main-frame show #f)
+                                (send result-frame show #t)
+                                )]
+                    ))
+;;MAIN FRAME END
+
+;;RESULT FRAME
+;;Creating a frame to display the results
+(define result-frame (new frame%
+                          [label "Result Frame"]
+                          [width 600]
+                          [height 400]
+                          ))
+
+
+;;Create Result Panel
+(define result-panel (new vertical-panel%
+                          [parent result-frame]
+                          [alignment '(center center)]
+                          [stretchable-width #f]
+                          [stretchable-height #f]
+                          ))
+
+;;Display Result
+(define (create-display departure departure-t arrival arrival-t modes)
+  ;;Button to go back to search
+  (define back-btn (new button%
+                        [parent result-frame]
+                        [label "Back"]
+                        [vert-margin 25]
+                        [callback (λ (back-btn r-win-change)
+                                    (send result-frame show #f)
+                                    (send main-frame show #t))]
+                        ))
+
+  ;;Create Result Panel
+  (define result-panel (new vertical-panel%
+                            [parent result-frame]
+                            [alignment '(center center)]
+                            [stretchable-width #f]
+                            [stretchable-height #f]
+                            ))
+  
+  ;;Display Journey leg data
+  (for ([i (in-range (length modes))])      
+      (new message%
+           [parent result-panel]
+           [label (format "Departure: ~a(~a)\nArrival: ~a(~a)\nMode: ~a"
+                          (list-ref departure i)
+                          (list-ref departure-t i)
+                          (list-ref arrival i)
+                          (list-ref arrival-t i)
+                          (list-ref modes i)
+                          )]
+           )
+    )
+  )
+;;RESULT FRAME END
+
+;; Function to clear all messages from the result panel
+(define (clear-results)
+  (for ([this-child (send result-frame get-children)])
+  (send result-frame delete-child this-child))
+  (send result-frame refresh))
+
+
+;;JSON REQUEST HANDLING
+;;Constructing a HTTP request URL
+(define (construct-url source destination date time)
+  (format "https://api.tfl.gov.uk/Journey/JourneyResults/~a/to/~a?date=~a&time=~a&timeIs=Departing&journeyPreference=LeastInterchange&accessibilityPreference=NoRequirements"
+          source
+          destination
+          date
+          time)
+  )
+
+;;Filling URL with inputs
+(define (get-journey from to date time)
+  (define url (construct-url from to date time))
+  (define response (get-pure-port (string->url url)))
+  (define json-response (read-json (open-input-string (port->string response))))
+  json-response
+  )
+
+;;Pull journey legs data from json response
+(define (extract-journey-legs json-response)
+  (define journeys (hash-ref json-response 'journeys #f))
+  (define journey (first journeys))
+  (define  legs (hash-ref (first (hash-ref json-response 'journeys #f)) 'legs #f))
+  legs
+  )
+
+;;Pull each legs mode of transportation
+(define pull-modes (λ (json-response)
+                     (for/list ([leg (in-list (extract-journey-legs json-response))])
+                       (hash-ref (hash-ref leg 'mode #f) 'name #f)
+                       )
+                     ))
+
+;;Pull each legs departure station
+(define pull-departure-stations (λ (json-response)
+                     (for/list ([leg (in-list (extract-journey-legs json-response))])
+                       (hash-ref (hash-ref leg 'departurePoint #f) 'commonName #f)
+                       )
+                     ))
+
+;;Pull each legs arrival station
+(define pull-arrival-stations (λ (json-response)
+                     (for/list ([leg (in-list (extract-journey-legs json-response))])
+                       (hash-ref (hash-ref leg 'arrivalPoint #f) 'commonName #f)
+                       )
+                     ))
+
+;;Pull each legs departure time
+(define pull-departure-time (λ (json-response)
+                            (for/list ([leg (in-list (extract-journey-legs json-response))])
+                              (hash-ref leg 'departureTime #f)
+                              )
+                              ))
+
+;;Pull each legs arrival time
+(define pull-arrival-time (λ (json-response)
+                            (for/list ([leg (in-list (extract-journey-legs json-response))])
+                              (hash-ref leg 'arrivalTime #f)
+                              )
+                            ))
+
+;;Pull interchange duration
+(define pull-interchange-time (λ (json-response)
+                                (for/list ([leg (in-list (extract-journey-legs json-response))])
+                                  (hash-ref leg 'interChangeDuration #f)
+                                  )
+                                ))   
+;;JSON REQUEST HANDLING END
