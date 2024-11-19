@@ -10,7 +10,6 @@ A transportation planner built using the Racket Programming Language, designed t
 ## Requirements
 
 - **Racket Programming Language**: Ensure you have Racket installed. You can download it from [here](https://racket-lang.org/).
-- **TFL API Key**: You will need to sign up for an API key on the [Transport for London API portal](https://api.tfl.gov.uk/) to make API requests.
 
 ## Installation
 
